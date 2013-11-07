@@ -87,9 +87,18 @@ void Sha256Class::addUncounted(uint8_t data) {
   }
 }
 
-void Sha256Class::write(uint8_t data) {
+#if defined(ARDUINO) && ARDUINO >= 100
+size_t 
+#else
+void 
+#endif
+Sha256Class::write(uint8_t data) {
   ++byteCount;
   addUncounted(data);
+
+#if defined(ARDUINO) && ARDUINO >= 100
+  return 1;
+#endif
 }
 
 void Sha256Class::pad() {

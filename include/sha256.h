@@ -23,7 +23,11 @@ class Sha256Class : public Print
     void initHmac(const uint8_t* secret, int secretLength);
     uint8_t* result(void);
     uint8_t* resultHmac(void);
+#if defined(ARDUINO) && ARDUINO >= 100
+    virtual size_t write(uint8_t);
+#else
     virtual void write(uint8_t);
+#endif
     using Print::write;
   private:
     void pad();
@@ -40,3 +44,5 @@ class Sha256Class : public Print
 extern Sha256Class Sha256;
 
 #endif
+
+
