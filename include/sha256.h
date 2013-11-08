@@ -17,10 +17,8 @@
 union _buffer {
     uint8_t b[BLOCK_LENGTH];
     uint32_t w[BLOCK_LENGTH/4];
-};
-union _state {
-    uint8_t b[HASH_LENGTH];
-    uint32_t w[HASH_LENGTH/4];
+    uint8_t c[HASH_LENGTH];
+    uint32_t y[HASH_LENGTH/4];
 };
 
 void init_hmac(const uint8_t* key, int key_length);
