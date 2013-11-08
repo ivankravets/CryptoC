@@ -30,7 +30,6 @@ uint8_t sha_init_state[] PROGMEM = {
 
 _buffer buffer;
 uint8_t buffer_offset;
-_state state;
 uint32_t byte_count;
 
 uint8_t key_buffer[BLOCK_LENGTH]; // K0 in FIPS-198a
@@ -44,14 +43,14 @@ void hash_block(uint8_t data) {
         uint8_t i;
         uint32_t a, b, c, d, e, f, g, h, t1, t2;
 
-        a = state.w[0];
-        b = state.w[1];
-        c = state.w[2];
-        d = state.w[3];
-        e = state.w[4];
-        f = state.w[5];
-        g = state.w[6];
-        h = state.w[7];
+        a = buffer.y[0];
+        b = buffer.y[1];
+        c = buffer.y[2];
+        d = buffer.y[3];
+        e = buffer.y[4];
+        f = buffer.y[5];
+        g = buffer.y[6];
+        h = buffer.y[7];
       
         for (i=0; i<64; i++) {
             if (i>=16) {
@@ -78,60 +77,71 @@ void hash_block(uint8_t data) {
             b = a; 
             a = t1+t2;
         }
-        state.w[0] += a;
-        state.w[1] += b;
-        state.w[2] += c;
-        state.w[3] += d;
-        state.w[4] += e;
-        state.w[5] += f;
-        state.w[6] += g;
-        state.w[7] += h;
+        buffer.y[0] += a;
+        buffer.y[1] += b;
+        buffer.y[2] += c;
+        buffer.y[3] += d;
+        buffer.y[4] += e;
+        buffer.y[5] += f;
+        buffer.y[6] += g;
+        buffer.y[7] += h;
         buffer_offset = 0;
     }
 }
 
-uint8_t* result(void) {
-    // Pad to complete the last block
-    // Implement SHA-256 padding (fips180-2 §5.1.1)
 
-    // Pad with 0x80 followed by 0x00 until the end of the block
-    hash_block(0x80);
-    while (buffer_offset != 56){
-        hash_block(0x00);
+
+uint8_t* result(uint8_t buffer_offset, uint32_t byte_count) {
+
+    uint8_t buffer_init[] = {
+        // Pad with 0x80 followed by 0x00 until the end of the block
+        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+        0x00, // We're only using 32 bit lengths
+        0x00, // But SHA-1 supports 64 bit lengths
+        0x00, // So zero pad the top bits 
+        (byte_count >> 29), // Shifting to multiply by 8
+        (byte_count >> 21), // as SHA-1 supports bitstreams as well as
+        (byte_count >> 13), // byte.
+        (byte_count >> 5), (byte_count << 3)
     }
 
-    // Append length in the last 8 bytes
-    hash_block(0); // We're only using 32 bit lengths
-    hash_block(0); // But SHA-1 supports 64 bit lengths
-    hash_block(0); // So zero pad the top bits
-    hash_block(byte_count >> 29); // Shifting to multiply by 8
-    hash_block(byte_count >> 21); // as SHA-1 supports bitstreams as well as
-    hash_block(byte_count >> 13); // byte.
-    hash_block(byte_count >> 5);
-    hash_block(byte_count << 3);
+    // Pad to complete the last block
+    // Implement SHA-256 padding (fips180-2 §5.1.1)
+    for(buffer_offset=0; buffer_offset<(BUFFER_SIZE-1); buffer_offset++){
+        buffer.b[buffer_offset ^ 3] = buffer_init[buffer_offset];
+        buffer_offset++;        
+    }
+    hash_block(buffer_init[BUFFER_SIZE]);
   
     // Swap byte order back
     for (int i=0; i<8; i++) {
-        uint32_t a, b;
-        a = state.w[i];
-        b = a<<24;
+        uint32_t a = buffer.y[i];
+        uint32_t b = a << 24;
         b |= (a << 8) & 0x00ff0000;
         b |= (a >> 8) & 0x0000ff00;
         b |= a >> 24;
-        state.w[i] = b;
+        buffer.y[i] = b;
     }
-  
-    // Return pointer to hash (20 characters)
-    return state.b;
+    
+    return buffer.c; // Return pointer to hash (20 characters)
 }
 
-void init_hmac(const uint8_t* key, int key_length) {
+uint8_t* sha (result){
+    memcpy_P(buffer.c, sha_init_state, 32);
+    return result(0, 0);
+}
+
+uint8_t* hmac(const uint8_t* key, int key_length) {
     uint8_t i;
     memset(key_buffer, 0, BLOCK_LENGTH);
     if (key_length > BLOCK_LENGTH) {
         // Hash long keys
         //init()
-        memcpy_P(state.b, sha_init_state, 32);
+        memcpy_P(buffer.c, sha_init_state, 32);
         byte_count = 0;
         buffer_offset = 0;
 
@@ -139,14 +149,14 @@ void init_hmac(const uint8_t* key, int key_length) {
             ++byte_count;
             hash_block(*key++);
         }
-        memcpy(key_buffer, result(), HASH_LENGTH);
+        memcpy(key_buffer, result(buffer_offset, byte_count), HASH_LENGTH);
     } else {
         // Block length keys are used as is
         memcpy(key_buffer, key, key_length);
     }
     // Start inner hash
     //init();
-    memcpy_P(state.b, sha_init_state, 32);
+    memcpy_P(buffer.c, sha_init_state, 32);
     byte_count = 0;
     buffer_offset = 0;
 
@@ -154,26 +164,26 @@ void init_hmac(const uint8_t* key, int key_length) {
         ++byte_count;
         hash_block(key_buffer[i] ^ HMAC_IPAD);
     }
-}
 
-uint8_t* result_hmac(void) {
-    uint8_t i;
+    uint8_t j;
     // Complete inner hash
-    memcpy(inner_hash, result(), HASH_LENGTH);
+    memcpy(inner_hash, result(buffer_offset, byte_count), HASH_LENGTH);
     // Calculate outer hash
     //init();
-    memcpy_P(state.b, sha_init_state, 32);
+    memcpy_P(buffer.c, sha_init_state, 32);
     byte_count = 0;
     buffer_offset = 0;
-    for (i=0; i<BLOCK_LENGTH; i++){
+    for (j=0; j<BLOCK_LENGTH; j++){
         ++byte_count;
-        hash_block(key_buffer[i] ^ HMAC_OPAD);
+        hash_block(key_buffer[j] ^ HMAC_OPAD);
     }
-    for (i=0; i<HASH_LENGTH; i++){
+    for (j=0; j<HASH_LENGTH; j++){
         ++byte_count;
-        hash_block(inner_hash[i]);
+        hash_block(inner_hash[j]);
     }
-    return result();
+    return result(buffer_offset, byte_count);
 }
+
+
 
 Sha256Class Sha256;
