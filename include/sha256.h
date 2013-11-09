@@ -12,13 +12,15 @@
 #define HMAC_IPAD 0x36
 #define HMAC_OPAD 0x5c
 
+#define MID_HASH 16
+
 #define ror32(number, bits) ((number << (32-bits)) | (number >> bits))
 
 union _buffer {
     uint8_t b[BLOCK_LENGTH];
-    uint32_t w[BLOCK_LENGTH/4];
+    uint32_t w[16];
     uint8_t c[HASH_LENGTH];
-    uint32_t y[HASH_LENGTH/4];
+    uint32_t y[8];
 };
 
 void init_hmac(const uint8_t* key, int key_length);
