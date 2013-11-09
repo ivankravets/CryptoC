@@ -1,9 +1,19 @@
 #include <string.h>
 #include <avr/io.h>
+//#ifndef __arm__
 #include <avr/pgmspace.h>
+/*#else
+#define PROGMEM // empty
+#define pgm_read_byte(x) (*(x))
+#define pgm_read_word(x) (*(x))
+#define pgm_read_float(x) (*(x))
+#define PSTR(x) x
+#endif*/
 #include "sha256.h"
 
-uint32_t sha256_k[] PROGMEM = {
+//Initialize array of round constants:
+//(first 32 bits of the fractional parts of the cube roots of the first 64 primes 2..311):
+uint32_t sha256_k[BLOCK_LENGTH] PROGMEM = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 
     0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 
     0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 
@@ -17,173 +27,137 @@ uint32_t sha256_k[] PROGMEM = {
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 };
 
-uint8_t sha_init_state[] PROGMEM = {
-    0x67, 0xe6, 0x09, 0x6a, // H0
-    0x85, 0xae, 0x67, 0xbb, // H1
-    0x72, 0xf3, 0x6e, 0x3c, // H2
-    0x3a, 0xf5, 0x4f, 0xa5, // H3
-    0x7f, 0x52, 0x0e, 0x51, // H4
-    0x8c, 0x68, 0x05, 0x9b, // H5
-    0xab, 0xd9, 0x83, 0x1f, // H6
-    0x19, 0xcd, 0xe0, 0x5b  // H7
+//Initialize hash values:
+//(first 32 bits of the fractional parts of the square roots of the first 8 primes 2..19):
+uint32_t sha_init_state[8] PROGMEM = {
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 };
+
+/*
+Note 1: All variables are 32 bit unsigned integers and addition is calculated modulo 232
+Note 2: For each round, there is one round constant k[i] and one entry in the message schedule array w_array[i], 0 ≤ i ≤ 63
+Note 3: The compression function uses 8 working variables, a through h
+Note 4: Big-endian convention is used when expressing the constants in this pseudocode,
+    and when parsing message block data from bytes to words, for example,
+    the first word of the input message "abc" after padding is 0x61626380
+*/
 
 _buffer buffer;
 uint8_t buffer_offset;
 uint32_t byte_count;
-
 uint8_t key_buffer[BLOCK_LENGTH]; // K0 in FIPS-198a
 uint8_t inner_hash[HASH_LENGTH];
 
-void hash_block(uint8_t data) {
-    buffer.b[buffer_offset ^ 3] = data;
+uint32_t sha256 (uint32_t* message, uint32_t* result) {
+    uint32_t bits = sizeof(message);
+    segments = bits / sizeof(message[0]);
+    //Pre-processing:
+    //append the bit '1' to the message///////////////////////////////////////////////////////////
 
-    buffer_offset++;
-    if (buffer_offset == BUFFER_SIZE) {
-        uint8_t i;
-        uint32_t a, b, c, d, e, f, g, h, t1, t2;
+    if(bits > 448){
+        //length (modulo 512 in bits) is 448.
+        uint32_t sub_segment = segments-14;
+        uint32_t sub_result[sub_segment]; 
+        uint32_t sub_message[sub_segment]; 
 
-        a = buffer.y[0];
-        b = buffer.y[1];
-        c = buffer.y[2];
-        d = buffer.y[3];
-        e = buffer.y[4];
-        f = buffer.y[5];
-        g = buffer.y[6];
-        h = buffer.y[7];
-      
-        for (i=0; i<64; i++) {
-            if (i>=16) {
-                t1 = buffer.w[i&15] + buffer.w[(i-7)&15];
-                t2 = buffer.w[(i-2)&15];
-                t1 += ror32(t2, 17) ^ ror32(t2, 19) ^ (t2>>10);
-                t2 = buffer.w[(i-15)&15];
-                t1 += ror32(t2, 7) ^ ror32(t2, 18) ^ (t2>>3);
-                buffer.w[i&15] = t1;
-            }
-            t1 = h;
-            t1 += ror32(e, 6) ^ ror32(e, 11) ^ ror32(e, 25); // ∑1(e)
-            t1 += g ^ (e & (g ^ f)); // Ch(e, f, g)
-            t1 += pgm_read_dword(sha256_k+i); // Ki
-            t1 += buffer.w[i&15]; // Wi
-            t2 = ror32(a, 2) ^ ror32(a, 13) ^ ror32(a, 22); // ∑0(a)
-            t2 += ((b & c) | (a & (b | c))); // Maj(a, b, c)
-            h = g;
-            g = f; 
-            f = e; 
-            e = d+t1; 
-            d = c; 
-            c = b; 
-            b = a; 
-            a = t1+t2;
+        for(i=0; i<sub_segment; i++){
+            sub_message[i] = message[i+14];
         }
-        buffer.y[0] += a;
-        buffer.y[1] += b;
-        buffer.y[2] += c;
-        buffer.y[3] += d;
-        buffer.y[4] += e;
-        buffer.y[5] += f;
-        buffer.y[6] += g;
-        buffer.y[7] += h;
-        buffer_offset = 0;
+        uint32_t result_size = sha256(&sub_message, &sub_result); //Process the message in successive 512-bit chunks:
+
+        //process subresult
+        for(i=0; i<sub_segment; i++){
+            result[i+16] = sub_result[i];
+        }
     }
+
+    uint32_t w_array[BLOCK_LENGTH];
+    uint32_t temp_array[8];
+    //append length of message (before pre-processing), in bits, as 64-bit big-endian integer
+    w_array[15] = bits;
+
+    //copy chunk into first 16 words w_array[0..15] of the message schedule array
+    for(i=0; i<(MID_HASH-2); i++){
+        w_array[i] = message[i];
+    }
+
+    //Extend the first 16 words into the remaining 48 words w_array[16..63] of the message schedule array:
+    for(i=MID_HASH; i<BLOCK_LENGTH; i++){
+        s0 = ror32(w_array[i-15], 7) ^ ror32(w_array[i-15], 18) ^ (w_array[i-15]>>3);
+        s1 = ror32(w_array[i-2], 17) ^ ror32(w_array[i-2], 19) ^ (w_array[i-2]>>10);
+        w_array[i] = w_array[i-16] + s0 + w_array[i-7] + s1;
+    }
+
+    //Initialize working variables to current hash value
+    for(i=0; i<8; i++){
+        temp_array[i] = sha_init_state[i];
+    }
+
+    //Compression function main loop:
+    for(i=0; i<BLOCK_LENGTH; i++){
+        S1 = ror32(temp_array[4], 6) ^ ror32(temp_array[4], 11) ^ ror32(temp_array[4], 25);
+        ch = (temp_array[4] & temp_array[5]) ^ ((not temp_array[4]) & temp_array[6]);
+        temp1 = temp_array[7] + S1 + ch + sha256_k[i] + w_array[i];
+        S0 = ror32(temp_array[0], 2) ^ ror32(temp_array[0], 13) ^ ror32(temp_array[0], 22);
+
+        maj = (temp_array[0] & temp_array[1]) ^ (temp_array[0] & temp_array[2]) ^ (temp_array[1] & temp_array[2]);
+     
+        temp_array[7] = temp_array[6];
+        temp_array[6] = temp_array[5];
+        temp_array[5] = temp_array[4];
+        temp_array[4] = temp_array[3] + temp1;
+        temp_array[3] = temp_array[2];
+        temp_array[2] = temp_array[1];
+        temp_array[1] = temp_array[0];
+        temp_array[0] = temp1 + S0 + maj;
+    }
+
+    //Add the compressed chunk to the current hash value:
+    for(i=0; i<8; i++){
+        sha_init_state[i] += temp_array[i];
+    }
+
+    //produce the final hash array returned as a pointer
+    for(i=0; i<8; i++){
+        result[i] = sha_init_state[i];
+    }
+    return sizeof(result);
 }
 
-
-
-uint8_t* result(uint8_t buffer_offset, uint32_t byte_count) {
-
-    uint8_t buffer_init[] = {
-        // Pad with 0x80 followed by 0x00 until the end of the block
-        0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-        0x00, // We're only using 32 bit lengths
-        0x00, // But SHA-1 supports 64 bit lengths
-        0x00, // So zero pad the top bits 
-        (byte_count >> 29), // Shifting to multiply by 8
-        (byte_count >> 21), // as SHA-1 supports bitstreams as well as
-        (byte_count >> 13), // byte.
-        (byte_count >> 5), (byte_count << 3)
-    }
-
-    // Pad to complete the last block
-    // Implement SHA-256 padding (fips180-2 §5.1.1)
-    for(buffer_offset=0; buffer_offset<(BUFFER_SIZE-1); buffer_offset++){
-        buffer.b[buffer_offset ^ 3] = buffer_init[buffer_offset];
-        buffer_offset++;        
-    }
-    hash_block(buffer_init[BUFFER_SIZE]);
-  
-    // Swap byte order back
-    for (int i=0; i<8; i++) {
-        uint32_t a = buffer.y[i];
-        uint32_t b = a << 24;
-        b |= (a << 8) & 0x00ff0000;
-        b |= (a >> 8) & 0x0000ff00;
-        b |= a >> 24;
-        buffer.y[i] = b;
-    }
-    
-    return buffer.c; // Return pointer to hash (20 characters)
-}
-
-uint8_t* sha (result){
-    memcpy_P(buffer.c, sha_init_state, 32);
-    return result(0, 0);
-}
-
-uint8_t* hmac(const uint8_t* key, int key_length) {
-    uint8_t i;
+uint8_t* hmac (const uint8_t* key, int key_length) {
+    uint8_t i, j;
     memset(key_buffer, 0, BLOCK_LENGTH);
     if (key_length > BLOCK_LENGTH) {
         // Hash long keys
-        //init()
         memcpy_P(buffer.c, sha_init_state, 32);
-        byte_count = 0;
-        buffer_offset = 0;
 
-        for (;key_length--;){
-            ++byte_count;
-            hash_block(*key++);
+        for (byte_count=1; byte_count=<key_length; byte_count++){
+            sha256_hash(*key++);
         }
-        memcpy(key_buffer, result(buffer_offset, byte_count), HASH_LENGTH);
+        memcpy(key_buffer, result(byte_count), HASH_LENGTH);
     } else {
         // Block length keys are used as is
         memcpy(key_buffer, key, key_length);
     }
     // Start inner hash
-    //init();
     memcpy_P(buffer.c, sha_init_state, 32);
-    byte_count = 0;
     buffer_offset = 0;
 
-    for (i=0; i<BLOCK_LENGTH; i++) {
-        ++byte_count;
-        hash_block(key_buffer[i] ^ HMAC_IPAD);
+    for (byte_count=1; byte_count=<BLOCK_LENGTH; byte_count++) {
+        sha256_hash(key_buffer[byte_count] ^ HMAC_IPAD);
     }
 
-    uint8_t j;
     // Complete inner hash
-    memcpy(inner_hash, result(buffer_offset, byte_count), HASH_LENGTH);
+    memcpy(inner_hash, result(byte_count), HASH_LENGTH);
     // Calculate outer hash
-    //init();
     memcpy_P(buffer.c, sha_init_state, 32);
-    byte_count = 0;
     buffer_offset = 0;
-    for (j=0; j<BLOCK_LENGTH; j++){
-        ++byte_count;
-        hash_block(key_buffer[j] ^ HMAC_OPAD);
+    for (byte_count=1; byte_count=<BLOCK_LENGTH; byte_count++){
+        sha256_hash(key_buffer[byte_count] ^ HMAC_OPAD);
     }
-    for (j=0; j<HASH_LENGTH; j++){
-        ++byte_count;
-        hash_block(inner_hash[j]);
+    for (byte_count=1; byte_count=<HASH_LENGTH; byte_count++){
+        sha256_hash(inner_hash[byte_count]);
     }
-    return result(buffer_offset, byte_count);
+    return result(byte_count);
 }
-
-
-
-Sha256Class Sha256;
