@@ -49,3 +49,5 @@ Verification:
   The provided example code tests against published test vectors.
   SHA-256: FIPS 180-2, RFC4231 compliant
   HMAC-SHA-256:  RFC4231 compliant
+
+  hash algorithm derived from http://www.rfc-editor.org/rfc/rfc6234.txt
