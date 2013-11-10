@@ -43,12 +43,6 @@ Note 4: Big-endian convention is used when expressing the constants in this pseu
     the first word of the input message "abc" after padding is 0x61626380
 */
 
-_buffer buffer;
-uint8_t buffer_offset;
-uint32_t byte_count;
-uint8_t key_buffer[BLOCK_LENGTH]; // K0 in FIPS-198a
-uint8_t inner_hash[HASH_LENGTH];
-
 uint32_t sha256 (uint32_t* message, uint32_t* result) {
     uint32_t bits = sizeof(message);
     segments = bits / sizeof(message[0]);
@@ -125,39 +119,19 @@ uint32_t sha256 (uint32_t* message, uint32_t* result) {
     return sizeof(result);
 }
 
-uint8_t* hmac (const uint8_t* key, int key_length) {
-    uint8_t i, j;
-    memset(key_buffer, 0, BLOCK_LENGTH);
-    if (key_length > BLOCK_LENGTH) {
-        // Hash long keys
-        memcpy_P(buffer.c, sha_init_state, 32);
+uint8_t* hmac256 (const uint8_t* key, uint8_t message) {
+    uint16_t i;
+    uint16_t opad = [0x5c * BLOCK_LENGTH]; // Where BLOCK_LENGTH is that of the underlying hash function
+    uint16_t ipad = [0x36 * BLOCK_LENGTH];
 
-        for (byte_count=1; byte_count=<key_length; byte_count++){
-            sha256_hash(*key++);
-        }
-        memcpy(key_buffer, result(byte_count), HASH_LENGTH);
-    } else {
-        // Block length keys are used as is
-        memcpy(key_buffer, key, key_length);
-    }
-    // Start inner hash
-    memcpy_P(buffer.c, sha_init_state, 32);
-    buffer_offset = 0;
-
-    for (byte_count=1; byte_count=<BLOCK_LENGTH; byte_count++) {
-        sha256_hash(key_buffer[byte_count] ^ HMAC_IPAD);
+    if(length(key) > BLOCK_LENGTH){
+        key = sha256(key); // Where 'hash' is the underlying hash function
     }
 
-    // Complete inner hash
-    memcpy(inner_hash, result(byte_count), HASH_LENGTH);
-    // Calculate outer hash
-    memcpy_P(buffer.c, sha_init_state, 32);
-    buffer_offset = 0;
-    for (byte_count=1; byte_count=<BLOCK_LENGTH; byte_count++){
-        sha256_hash(key_buffer[byte_count] ^ HMAC_OPAD);
+    for(i=0; i<length(key); i++){
+        ipad[i] = ipad[i] ^ key[i];
+        opad[i] = opad[i] ^ key[i];
     }
-    for (byte_count=1; byte_count=<HASH_LENGTH; byte_count++){
-        sha256_hash(inner_hash[byte_count]);
-    }
-    return result(byte_count);
-}
+
+    return sha256(opad || sha256(ipad || message)); // Where || is concatenation
+} 
