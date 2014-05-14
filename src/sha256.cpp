@@ -1,5 +1,6 @@
 #include <string.h>
 #include <avr/io.h>
+#include <stdint.h>
 //#ifndef __arm__
 #include <avr/pgmspace.h>
 /*#else
@@ -45,7 +46,8 @@ Note 4: Big-endian convention is used when expressing the constants in this pseu
 
 uint32_t sha256 (uint32_t* message, uint32_t* result) {
     uint32_t bits = sizeof(message);
-    segments = bits / sizeof(message[0]);
+    uint32_t s0, s1, ch, temp1, maj;
+    uint32_t segments = bits / sizeof(message[0]);
     //Pre-processing:
     //append the bit '1' to the message///////////////////////////////////////////////////////////
 
