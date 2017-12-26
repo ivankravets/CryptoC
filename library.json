@@ -1,0 +1,12 @@
+{
+  "name": "CryptoC",
+  "keywords": "sha, sha256, hmac",
+  "description": "Cryptographic suite for Arduino (SHA256, HMAC-SHA-256)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Snowda/CryptoC.git"
+  },
+  "version": "1.0.0",
+  "frameworks": "arduino",
+  "platforms": "*"
+}
